@@ -141,7 +141,7 @@ The performance of your image generative models will be evaluated quantitatively
 
 ### Mid-Term Evaluation (Optional)
 
-**Due:** November 1 (Saturday) 23:59 KST  
+**Due:** November 2 (Sunday) 23:59 KST  
 **Where:** KLMS
 
 The purpose of the mid-term evaluation is to give all students a reference point for how other teams are progressing. **Participation is optional**, but the top team at each NFE that also outperforms the TAs' FID scores will receive bonus credit toward the final grade.

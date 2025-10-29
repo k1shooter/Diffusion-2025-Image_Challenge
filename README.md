@@ -2,7 +2,7 @@
 
 
 
-**Mid Evaluation Submission Due:** November 1 (Saturday) 23:59 KST  
+**Mid Evaluation Submission Due:** November 2 (Sunday) 23:59 KST  
 **Final Submission Due:** November 15 (Saturday) 23:59 KST  
 **Where to Submit:** KLMS
 

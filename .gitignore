@@ -77,3 +77,6 @@ Thumbs.db
 *.bak
 *.orig
 
+sample*/
+test/
+data/simpsons_64x64

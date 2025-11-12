@@ -195,36 +195,94 @@ class CustomGenerativeModel(BaseGenerativeModel):
             total_loss += self.empirical_ratio * loss_flow
 
         # --- 2. Self-Consistency (Bootstrap) Loss (d>0) [25% of batch] ---
+        # if B_bst > 0:
+        #     x1_bst, x0_bst = data[:B_bst], noise[:B_bst]
+
+        #     # Sample d (step size) from {1/128, 1/64, ..., 1}
+        #     dt_base_idx = torch.randint(0, self.log2_M, (B_bst,), device=device) # 0~6
+        #     d = 1.0 / (2*2.0 ** dt_base_idx) #1/2 ~ 1/128
+            
+        #     # t : [0, 1 - 2d], discrete, multiple of d
+        #     num_steps_in_range = (2.0 ** dt_base_idx).long() # 1  ~ 64, 1/2d
+            
+        #     # 각 샘플마다 유효한 범위 [0, num_steps_in_range-1]에서 정수 인덱스 샘플링
+        #     t_rand_unscaled = torch.rand(B_bst, device=device) # U[0, 1)
+        #     t_idx = torch.floor(t_rand_unscaled * num_steps_in_range).long() # 0 ~ 63
+            
+        #     t = t_idx.float() * d * 2 # t ~ U_discrete[0, 1 - d_big]
+
+        #     t_next = t + d
+            
+        #     xt_bst = self.scheduler.forward_process(x1_bst, x0_bst, t)
+
+        #     # Get target using two small steps (with EMA model)
+        #     with torch.no_grad():
+        #         s_t = self.predict(xt_bst, t, d, use_ema=True)
+        #         x_t_next = self.scheduler.reverse_process_step(xt_bst, s_t, d=d)
+        #         s_t_next = self.predict(x_t_next, t_next, d, use_ema=True)
+        #         s_target = (s_t + s_t_next) / 2.0
+            
+        #     # Predict using one big step (with online model)
+        #     s_pred = self.predict(xt_bst, t, d*2, use_ema=False)
+            
+        #     loss_bst = self.loss_fn(s_pred, s_target)
+        #     total_loss += self.bootstrap_ratio * loss_bst
         if B_bst > 0:
             x1_bst, x0_bst = data[:B_bst], noise[:B_bst]
 
-            # Sample d (step size) from {1/128, 1/64, ..., 1}
-            dt_base_idx = torch.randint(0, self.log2_M, (B_bst,), device=device) # 0~6
-            d = 1.0 / (2*2.0 ** dt_base_idx) #1/2 ~ 1/128
+            # [수정] 8개 레벨(0~7)을 샘플링하도록 +1 추가
+            # self.log2_M = 7
+            dt_base_idx = torch.randint(0, self.log2_M + 1, (B_bst,), device=device) # 0~7 (8개 레벨)
             
-            # t : [0, 1 - 2d], discrete, multiple of d
-            num_steps_in_range = (2.0 ** dt_base_idx).long() # 1  ~ 64, 1/2d
+            # d_small = {1/2, 1/4, ..., 1/256}
+            d = 1.0 / (2*2.0 ** dt_base_idx) 
             
-            # 각 샘플마다 유효한 범위 [0, num_steps_in_range-1]에서 정수 인덱스 샘플링
-            t_rand_unscaled = torch.rand(B_bst, device=device) # U[0, 1)
-            t_idx = torch.floor(t_rand_unscaled * num_steps_in_range).long() # 0 ~ 63
+            # [수정] 베이스 케이스(i=7) 처리를 위한 로직
+            # d_target은 타겟 생성에 사용할 스텝 크기
+            d_target = d.clone()
             
-            t = t_idx.float() * d * 2 # t ~ U_discrete[0, 1 - d_big]
+            # 가장 작은 스텝 인덱스 (i == 7, 즉 d_small = 1/256)
+            smallest_step_mask = (dt_base_idx == self.log2_M)
+            
+            # 논문  "When d is at the smallest value... we instead query the model at d=0"
+            # d_small이 1/256일 때 (d_big=1/128 학습 시), 타겟 생성에 d=0을 사용
+            d_target[smallest_step_mask] = 0.0
 
-            t_next = t + d
             
+            # t : [0, 1 - 2d], discrete, multiple of 2d
+            # (t 샘플링 로직은 기존 코드와 동일하게 두어도 작동합니다)
+            num_steps_in_range = (2.0 ** dt_base_idx).long() 
+            t_rand_unscaled = torch.rand(B_bst, device=device) 
+            t_idx = torch.floor(t_rand_unscaled * num_steps_in_range).long() 
+            
+            # d*2 = {1, 1/2, ..., 1/128} (학습할 d_big)
+            d_big = d * 2
+            t = t_idx.float() * d_big # t ~ U_discrete[0, 1 - d_big]
+
             xt_bst = self.scheduler.forward_process(x1_bst, x0_bst, t)
 
             # Get target using two small steps (with EMA model)
             with torch.no_grad():
-                s_t = self.predict(xt_bst, t, d, use_ema=True)
-                x_t_next = self.scheduler.reverse_process_step(xt_bst, s_t, d=d)
-                s_t_next = self.predict(x_t_next, t_next, d, use_ema=True)
+                # [수정] d 대신 d_target 사용 (i=7일 때 d=0이 됨)
+                s_t = self.predict(xt_bst, t, d_target, use_ema=True)
+                
+                # [수정] d 대신 d_target 사용
+                x_t_next = self.scheduler.reverse_process_step(xt_bst, s_t, d=d_target)
+                
+                # [수정] d 대신 d_target 사용
+                t_next = t + d_target
+                
+                # [수정] d 대신 d_target 사용
+                s_t_next = self.predict(x_t_next, t_next, d_target, use_ema=True)
+                
+                # (d_target=0 이면 s_t == s_t_next 이므로 s_target = s_t 가 됨)
                 s_target = (s_t + s_t_next) / 2.0
             
             # Predict using one big step (with online model)
-            s_pred = self.predict(xt_bst, t, d*2, use_ema=False)
+            # [수정] d*2 대신 d_big 사용 (가독성)
+            s_pred = self.predict(xt_bst, t, d_big, use_ema=False)
             
+            # (i=7일 때) loss = || s(d=1/128) - s_target(from d=0) ||^2
             loss_bst = self.loss_fn(s_pred, s_target)
             total_loss += self.bootstrap_ratio * loss_bst
             
@@ -244,8 +302,6 @@ class CustomGenerativeModel(BaseGenerativeModel):
         """
 
         # Ensure sigma is a tensor and on the correct device/shape
-        use_ema = kwargs.get('use_ema', False)
-        d = kwargs.get('d', None)
         active_network = self.ema_network if use_ema else self.network
         return active_network(xt, t, condition=d)
 

@@ -10,7 +10,7 @@ from pathlib import Path
 from tqdm import tqdm
 
 from src.utils import tensor_to_pil_image, load_model, seed_everything
-from custom_model_KSJ_consistency import create_custom_model
+from custom_model_KSJ_shortcut import create_custom_model
 
 
 def main(args):

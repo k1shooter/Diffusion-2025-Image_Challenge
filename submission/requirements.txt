@@ -1,0 +1,6 @@
+kagglehub
+Pillow
+dotmap
+matplotlib
+clean-fid
+lpips
